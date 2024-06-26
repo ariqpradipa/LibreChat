@@ -8,6 +8,14 @@ services:
     container_name: LibreChat
     ports:
       - "${PORT}:${PORT}"
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chat.rule=Host(`chat.arprd.com`)"
+      - "traefik.http.routers.chat.entrypoints=websecure"
+      - "traefik.http.routers.chat.tls.certResolver=letsencrypt"
+      - "traefik.http.services.chat.loadbalancer.server.port=${PORT}"
     depends_on:
       # - mongodb
       - rag_api
@@ -70,3 +78,7 @@ services:
 
 volumes:
   pgdata2:
+
+networks:
+  dokploy-network:
+    external: true

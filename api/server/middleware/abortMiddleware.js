@@ -1,9 +1,9 @@
 const { isAssistantsEndpoint } = require('librechat-data-provider');
 const { sendMessage, sendError, countTokens, isEnabled } = require('~/server/utils');
 const { truncateText, smartTruncateText } = require('~/app/clients/prompts');
-const { saveMessage, getConvo, getConvoTitle } = require('~/models');
 const clearPendingReq = require('~/cache/clearPendingReq');
 const abortControllers = require('./abortControllers');
+const { saveMessage, getConvo } = require('~/models');
 const spendTokens = require('~/models/spendTokens');
 const { abortRun } = require('./abortRun');
 const { logger } = require('~/config');
@@ -69,8 +69,10 @@ const createAbortController = (req, res, getAbortData, getReqData) => {
    */
   const onStart = (userMessage, responseMessageId) => {
     sendMessage(res, { message: userMessage, created: true });
+
     const abortKey = userMessage?.conversationId ?? req.user.id;
     const prevRequest = abortControllers.get(abortKey);
+
     if (prevRequest && prevRequest?.abortController) {
       const data = prevRequest.abortController.getAbortData();
       getReqData({ userMessage: data?.userMessage });
@@ -81,6 +83,7 @@ const createAbortController = (req, res, getAbortData, getReqData) => {
       });
       return;
     }
+
     abortControllers.set(abortKey, { abortController, ...endpointOption });
 
     res.on('finish', function () {
@@ -90,7 +93,8 @@ const createAbortController = (req, res, getAbortData, getReqData) => {
 
   abortController.abortCompletion = async function () {
     abortController.abort();
-    const { conversationId, userMessage, promptTokens, ...responseData } = getAbortData();
+    const { conversationId, userMessage, userMessagePromise, promptTokens, ...responseData } =
+      getAbortData();
     const completionTokens = await countTokens(responseData?.text ?? '');
     const user = req.user.id;
 
@@ -114,10 +118,20 @@ const createAbortController = (req, res, getAbortData, getReqData) => {
 
     saveMessage({ ...responseMessage, user });
 
+    let conversation;
+    if (userMessagePromise) {
+      const resolved = await userMessagePromise;
+      conversation = resolved?.conversation;
+    }
+
+    if (!conversation) {
+      conversation = await getConvo(req.user.id, conversationId);
+    }
+
     return {
-      title: await getConvoTitle(user, conversationId),
+      title: conversation && !conversation.title ? null : conversation?.title || 'New Chat',
       final: true,
-      conversation: await getConvo(user, conversationId),
+      conversation,
       requestMessage: userMessage,
       responseMessage: responseMessage,
     };
